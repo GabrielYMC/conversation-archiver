@@ -249,28 +249,52 @@ CONVERSATION:
 # ---------------------------------------------------------------------------
 
 def call_llm(prompt: str, model: str) -> str:
-    """Call LLM via Ollama API (local) or compatible endpoint."""
+    \"\"\"Call LLM via Ollama API (local) or OpenAI-compatible endpoint.\"\"\"
     try:
         import httpx
     except ImportError:
-        print("Error: httpx not installed. Run: pip install httpx", file=sys.stderr)
+        print(\"Error: httpx not installed. Run: pip install httpx\", file=sys.stderr)
         sys.exit(1)
 
-    # Detect if model looks like an API model or Ollama model
-    api_base = os.environ.get("LLM_API_BASE", "http://localhost:11434")
+    api_base = os.environ.get(\"LLM_API_BASE\", \"http://localhost:11434\").rstrip(\"/\")
+    api_key = os.environ.get(\"LLM_API_KEY\", \"\")
 
-    response = httpx.post(
-        f"{api_base}/api/generate",
-        json={
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_predict": 4096, "temperature": 0.3},
-        },
-        timeout=300.0,
-    )
-    response.raise_for_status()
-    return response.json().get("response", "")
+    # Determine if we should use Ollama format or OpenAI format
+    is_ollama = \"ollama\" in api_base or api_base.endswith(\"11434\")
+
+    try:
+        if is_ollama:
+            # Ollama /api/generate format
+            response = httpx.post(
+                f\"{api_base}/api/generate\",
+                json={
+                    \"model\": model,
+                    \"prompt\": prompt,
+                    \"stream\": False,
+                    \"options\": {\"num_predict\": 4096, \"temperature\": 0.3},
+                },
+                timeout=300.0,
+            )
+            response.raise_for_status()
+            return response.json().get(\"response\", \"\")
+        else:
+            # OpenAI-compatible /v1/chat/completions format
+            headers = {\"Authorization\": f\"Bearer {api_key}\", \"Content-Type\": \"application/json\"}
+            response = httpx.post(
+                f\"{api_base}/v1/chat/completions\",
+                headers=headers,
+                json={
+                    \"model\": model,
+                    \"messages\": [{\"role\": \"user\", \"content\": prompt}],
+                    \"temperature\": 0.3,
+                },
+                timeout=300.0,
+            )
+            response.raise_for_status()
+            return response.json()[\"choices\"][0][\"message\"][\"content\"]
+    except Exception as e:
+        print(f\"Error calling LLM: {e}\", file=sys.stderr)
+        return f\"[Error: {e}]\"
 
 
 # ---------------------------------------------------------------------------
